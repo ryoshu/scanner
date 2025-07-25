@@ -43,8 +43,8 @@ class YOLODetector {
         try {
             // For prototype, we'll use a YOLOv5s model converted to ONNX
             // In production, this would be YOLOv11
-            const modelUrl = 'https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.onnx';
-            // const modelUrl = './models/yolov5s.onnx';
+            // const modelUrl = 'https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.onnx';
+            const modelUrl = './models/yolov5s.onnx';
             
             console.log('Loading YOLO model...');
             this.session = await ort.InferenceSession.create(modelUrl);
