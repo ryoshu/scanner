@@ -12,6 +12,7 @@ A mobile web application designed to help people with mobility issues identify p
 ## Technology Stack
 - **Frontend**: Vanilla HTML/CSS/JavaScript (no framework dependencies)
 - **Camera**: WebRTC API for device camera access
+- **AI Detection**: ONNX Runtime Web for YOLOv5 object detection
 - **Storage**: LocalStorage for data persistence
 - **Accessibility**: WCAG 2.1 AA compliant design
 - **Deployment**: Static files (can be hosted on GitHub Pages)
@@ -22,15 +23,18 @@ A mobile web application designed to help people with mobility issues identify p
 ├── index.html          # Main application structure
 ├── styles.css          # Responsive, accessible styling
 ├── script.js          # Core application logic
+├── yolo-detector.js    # YOLO object detection integration
 └── CLAUDE.md          # This documentation
 ```
 
 ## Core Features
 1. **Camera Integration**: Access device camera to capture room photos
-2. **Hazard Identification**: Manual tagging of 8 common mobility hazards
-3. **Severity Assessment**: Three-level risk categorization (low/medium/high)
-4. **Data Persistence**: Local storage of scan history (last 10 scans)
-5. **Accessibility**: Large buttons, screen reader support, high contrast mode
+2. **AI Object Detection**: YOLO-powered automatic detection of potential hazards
+3. **Hybrid AI + Manual Workflow**: AI suggestions combined with manual verification
+4. **Hazard Identification**: Manual tagging of 8+ common mobility hazards
+5. **Severity Assessment**: Three-level risk categorization (low/medium/high)
+6. **Data Persistence**: Local storage of scan history (last 10 scans)
+7. **Accessibility**: Large buttons, screen reader support, high contrast mode
 
 ## Hazard Types Tracked
 - Loose Rugs
@@ -42,6 +46,37 @@ A mobile web application designed to help people with mobility issues identify p
 - Unstable Furniture
 - Electrical Cords
 - Custom Hazards (user-defined)
+
+## AI Integration (Phase 0)
+
+### **YOLO Object Detection**
+The prototype includes AI-powered object detection using YOLOv5 via ONNX Runtime Web:
+
+**Detected Object Classes:**
+- Furniture (chairs, tables, couches) → Sharp corners, unstable furniture hazards
+- Floor items (backpacks, bottles, books) → Floor clutter hazards  
+- Electronics (laptops, TVs) → Electrical cord hazards
+- Plants and decorative items → Pathway obstruction hazards
+
+**AI Workflow:**
+1. **Photo Capture**: User takes photo of room
+2. **AI Analysis**: YOLO model processes image for objects (2-3 second analysis)
+3. **Hazard Mapping**: Detected objects mapped to potential mobility hazards
+4. **User Review**: AI suggestions presented with confidence scores
+5. **Manual Override**: User can accept/reject AI suggestions
+6. **Combined Assessment**: AI + manual inputs merged for final assessment
+
+**Current Limitations:**
+- Uses pre-trained COCO dataset (not mobility-specific)
+- Mock detection mode for development/testing
+- ~20-50MB model size (loads on first use)
+- Basic object-to-hazard mapping rules
+
+**Future Enhancements (Phase 1+):**
+- Custom mobility hazard detection model
+- Real-time analysis during camera preview
+- Confidence-based auto-selection
+- User feedback loop for model improvement
 
 ## Development Commands
 Since this is a vanilla JavaScript project, no build process is required:

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Room Hazard Scanner - Prototype</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/ort.min.js"></script>
 </head>
 <body>
     <header>
@@ -39,13 +40,32 @@
                     🔄 Retake Photo
                 </button>
                 <button id="analyze-photo" class="btn btn-primary" aria-label="Continue to analyze this photo">
-                    ➡️ Analyze Photo
+                    🤖 AI Analyze Photo
                 </button>
             </div>
         </section>
 
+        <section id="ai-analysis-section" class="section" style="display: none;">
+            <h2>3. AI Analysis</h2>
+            <div id="ai-status" class="ai-status">
+                <div class="loading-spinner"></div>
+                <p>AI is analyzing your photo for potential hazards...</p>
+            </div>
+            <div id="ai-results" class="ai-results" style="display: none;">
+                <h3>AI Detected Objects</h3>
+                <div id="detected-objects" class="detected-objects">
+                    <!-- AI detected objects will be shown here -->
+                </div>
+                <div class="button-group">
+                    <button id="continue-to-manual" class="btn btn-primary" aria-label="Continue to manual hazard identification">
+                        ➡️ Continue to Manual Review
+                    </button>
+                </div>
+            </div>
+        </section>
+
         <section id="hazard-section" class="section" style="display: none;">
-            <h2>3. Identify Hazards</h2>
+            <h2>4. Identify Hazards</h2>
             <div id="hazard-list" class="hazard-list">
                 <!-- Hazard items will be added dynamically -->
             </div>
@@ -60,7 +80,7 @@
         </section>
 
         <section id="results-section" class="section" style="display: none;">
-            <h2>4. Assessment Results</h2>
+            <h2>5. Assessment Results</h2>
             <div id="results-summary" class="results-summary">
                 <!-- Results will be populated here -->
             </div>
@@ -90,6 +110,7 @@
         </section>
     </main>
 
+    <script src="yolo-detector.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

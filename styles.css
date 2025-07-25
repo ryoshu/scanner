@@ -187,6 +187,91 @@ header p {
     margin-top: 20px;
 }
 
+/* AI Analysis section */
+.ai-status {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.ai-results {
+    margin-top: 20px;
+}
+
+.ai-results h3 {
+    color: #2c3e50;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.detected-objects {
+    display: grid;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.detected-object {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    background: #f8f9fa;
+}
+
+.detected-object.potential-hazard {
+    border-color: #ffc107;
+    background: #fff3cd;
+}
+
+.object-info {
+    flex: 1;
+}
+
+.object-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.object-confidence {
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.hazard-potential {
+    color: #856404;
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+.object-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.add-as-hazard-btn {
+    min-width: 120px;
+    min-height: 40px;
+    font-size: 0.9rem;
+    padding: 8px 15px;
+}
+
 /* Hazard list */
 .hazard-list {
     display: grid;

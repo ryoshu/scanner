@@ -2,7 +2,9 @@ class HazardScanner {
     constructor() {
         this.currentPhoto = null;
         this.currentHazards = [];
+        this.aiDetections = [];
         this.scanHistory = this.loadScanHistory();
+        this.yoloDetector = new YOLODetector();
         
         this.initializeElements();
         this.bindEvents();
@@ -20,6 +22,12 @@ class HazardScanner {
         this.capturedPhoto = document.getElementById('captured-photo');
         this.retakePhotoBtn = document.getElementById('retake-photo');
         this.analyzePhotoBtn = document.getElementById('analyze-photo');
+        
+        // AI Analysis elements
+        this.aiStatus = document.getElementById('ai-status');
+        this.aiResults = document.getElementById('ai-results');
+        this.detectedObjects = document.getElementById('detected-objects');
+        this.continueToManualBtn = document.getElementById('continue-to-manual');
         
         // Hazard elements
         this.hazardList = document.getElementById('hazard-list');
@@ -40,6 +48,7 @@ class HazardScanner {
         this.sections = {
             camera: document.getElementById('camera-section'),
             photo: document.getElementById('photo-section'),
+            aiAnalysis: document.getElementById('ai-analysis-section'),
             hazard: document.getElementById('hazard-section'),
             results: document.getElementById('results-section'),
             history: document.getElementById('history-section')
@@ -51,6 +60,7 @@ class HazardScanner {
         this.takePhotoBtn.addEventListener('click', () => this.takePhoto());
         this.retakePhotoBtn.addEventListener('click', () => this.retakePhoto());
         this.analyzePhotoBtn.addEventListener('click', () => this.analyzePhoto());
+        this.continueToManualBtn.addEventListener('click', () => this.continueToManual());
         this.addCustomHazardBtn.addEventListener('click', () => this.addCustomHazard());
         this.finishScanBtn.addEventListener('click', () => this.finishScan());
         this.startNewScanBtn.addEventListener('click', () => this.startNewScan());
@@ -156,10 +166,130 @@ class HazardScanner {
         this.currentPhoto = null;
     }
 
-    analyzePhoto() {
+    async analyzePhoto() {
+        this.showSection('aiAnalysis');
+        this.aiStatus.style.display = 'block';
+        this.aiResults.style.display = 'none';
+        this.announceToScreenReader('AI is analyzing your photo for potential hazards. Please wait.');
+        
+        try {
+            // Create image element from captured photo
+            const img = new Image();
+            img.onload = async () => {
+                const detections = await this.yoloDetector.detectObjects(img);
+                this.aiDetections = detections;
+                this.showAIResults(detections);
+            };
+            img.src = this.currentPhoto;
+        } catch (error) {
+            console.error('AI analysis failed:', error);
+            this.showAIError();
+        }
+    }
+    
+    showAIResults(detections) {
+        this.aiStatus.style.display = 'none';
+        this.aiResults.style.display = 'block';
+        
+        this.detectedObjects.innerHTML = '';
+        
+        if (detections.length === 0) {
+            this.detectedObjects.innerHTML = '<p>No objects detected by AI. Continue to manual identification.</p>';
+        } else {
+            detections.forEach(detection => {
+                const objectDiv = document.createElement('div');
+                objectDiv.className = `detected-object ${detection.isPotentialHazard ? 'potential-hazard' : ''}`;
+                
+                let actionButtons = '';
+                if (detection.isPotentialHazard) {
+                    actionButtons = `
+                        <div class="object-actions">
+                            <button class="add-as-hazard-btn btn btn-warning" 
+                                    data-hazard-type="${detection.hazardType}"
+                                    data-risk="${detection.risk}"
+                                    data-object-name="${detection.objectName}"
+                                    aria-label="Add ${detection.objectName} as ${detection.risk} risk hazard">
+                                Add as ${detection.risk} risk
+                            </button>
+                        </div>
+                    `;
+                }
+                
+                objectDiv.innerHTML = `
+                    <div class="object-info">
+                        <div class="object-name">${detection.objectName}</div>
+                        <div class="object-confidence">Confidence: ${detection.confidence}%</div>
+                        ${detection.isPotentialHazard ? `<div class="hazard-potential">${detection.description}</div>` : ''}
+                    </div>
+                    ${actionButtons}
+                `;
+                
+                this.detectedObjects.appendChild(objectDiv);
+            });
+            
+            // Bind add-as-hazard button events
+            this.detectedObjects.addEventListener('click', (e) => {
+                if (e.target.classList.contains('add-as-hazard-btn')) {
+                    this.addAIDetectionAsHazard(e.target);
+                }
+            });
+        }
+        
+        const hazardCount = detections.filter(d => d.isPotentialHazard).length;
+        this.announceToScreenReader(`AI analysis complete. Found ${hazardCount} potential hazard${hazardCount !== 1 ? 's' : ''}. Review the results and continue to manual identification.`);
+    }
+    
+    showAIError() {
+        this.aiStatus.style.display = 'none';
+        this.aiResults.style.display = 'block';
+        this.detectedObjects.innerHTML = '<p>AI analysis encountered an error. Continuing to manual identification.</p>';
+        this.announceToScreenReader('AI analysis failed. Continuing to manual hazard identification.');
+    }
+    
+    addAIDetectionAsHazard(button) {
+        const hazardType = button.dataset.hazardType;
+        const risk = button.dataset.risk;
+        const objectName = button.dataset.objectName;
+        
+        // Find corresponding hazard type or create custom one
+        let hazardTypeObj = this.hazardTypes.find(h => h.id === hazardType);
+        if (!hazardTypeObj) {
+            hazardTypeObj = {
+                id: hazardType,
+                name: objectName,
+                description: `AI detected ${objectName}`
+            };
+            this.hazardTypes.push(hazardTypeObj);
+        }
+        
+        // Add to current hazards
+        const existingIndex = this.currentHazards.findIndex(h => h.id === hazardType);
+        if (existingIndex > -1) {
+            this.currentHazards[existingIndex].severity = risk;
+        } else {
+            this.currentHazards.push({
+                id: hazardType,
+                name: hazardTypeObj.name,
+                description: hazardTypeObj.description,
+                severity: risk,
+                timestamp: new Date().toISOString(),
+                source: 'ai'
+            });
+        }
+        
+        // Visual feedback
+        button.textContent = '✓ Added';
+        button.disabled = true;
+        button.classList.remove('btn-warning');
+        button.classList.add('btn-success');
+        
+        this.announceToScreenReader(`Added ${objectName} as ${risk} risk hazard`);
+    }
+    
+    continueToManual() {
         this.renderHazardList();
         this.showSection('hazard');
-        this.announceToScreenReader('Now identify any hazards you see in your photo. Select hazards and choose their severity level.');
+        this.announceToScreenReader('Now review and add any additional hazards manually. AI suggestions have been pre-selected where applicable.');
     }
 
     renderHazardList() {
@@ -187,6 +317,16 @@ class HazardScanner {
             `;
             
             this.hazardList.appendChild(hazardItem);
+            
+            // Pre-select AI detected hazards
+            const aiHazard = this.currentHazards.find(h => h.id === hazard.id && h.source === 'ai');
+            if (aiHazard) {
+                hazardItem.classList.add('selected');
+                const severityBtn = hazardItem.querySelector(`[data-severity="${aiHazard.severity}"]`);
+                if (severityBtn) {
+                    severityBtn.classList.add('active');
+                }
+            }
         });
         
         // Bind severity button events
