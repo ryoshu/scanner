@@ -272,6 +272,24 @@ header p {
     padding: 8px 15px;
 }
 
+.ai-error {
+    text-align: center;
+    padding: 20px;
+    background: #f8d7da;
+    border: 2px solid #f5c6cb;
+    border-radius: 8px;
+    color: #721c24;
+}
+
+.ai-error p {
+    margin-bottom: 10px;
+}
+
+.ai-error p:last-child {
+    margin-bottom: 0;
+    color: #495057;
+}
+
 /* Hazard list */
 .hazard-list {
     display: grid;

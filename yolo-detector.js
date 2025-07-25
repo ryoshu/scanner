@@ -44,6 +44,7 @@ class YOLODetector {
             // For prototype, we'll use a YOLOv5s model converted to ONNX
             // In production, this would be YOLOv11
             const modelUrl = 'https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.onnx';
+            // const modelUrl = './models/yolov5s.onnx';
             
             console.log('Loading YOLO model...');
             this.session = await ort.InferenceSession.create(modelUrl);
@@ -52,10 +53,7 @@ class YOLODetector {
             
         } catch (error) {
             console.error('Failed to load YOLO model:', error);
-            // Fallback to mock detection for prototype
-            this.isReady = true;
-            this.mockMode = true;
-            console.log('Using mock detection mode');
+            throw new Error(`YOLO model loading failed: ${error.message}`);
         } finally {
             this.isLoading = false;
         }
@@ -66,25 +64,28 @@ class YOLODetector {
             await this.loadModel();
         }
         
-        if (this.mockMode) {
-            return this.mockDetection();
-        }
-        
         try {
-            // Preprocess image
-            const tensor = await this.preprocessImage(imageElement);
+            // Preprocess image for YOLO input
+            const { tensor, imgWidth, imgHeight } = await this.preprocessImage(imageElement);
             
-            // Run inference
+            // Run YOLO inference
             const results = await this.session.run({ images: tensor });
             
-            // Postprocess results
-            const detections = this.postprocessResults(results.output0.data, results.output0.dims);
+            // Get output tensor (YOLOv5 output format)
+            const output = results.output0 || results[Object.keys(results)[0]];
             
-            return this.filterPotentialHazards(detections);
+            // Postprocess YOLO results
+            const detections = this.postprocessYOLOResults(output.data, output.dims, imgWidth, imgHeight);
+            
+            // Apply Non-Maximum Suppression
+            const filteredDetections = this.nonMaxSuppression(detections, 0.5, 0.4);
+            
+            // Map to potential hazards
+            return this.filterPotentialHazards(filteredDetections);
             
         } catch (error) {
             console.error('Detection failed:', error);
-            return this.mockDetection();
+            throw error;
         }
     }
     
@@ -92,61 +93,168 @@ class YOLODetector {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         
-        // YOLO expects 640x640 input
-        canvas.width = 640;
-        canvas.height = 640;
+        // Store original dimensions for coordinate scaling
+        const originalWidth = imageElement.naturalWidth || imageElement.width;
+        const originalHeight = imageElement.naturalHeight || imageElement.height;
         
-        // Draw and resize image
-        ctx.drawImage(imageElement, 0, 0, 640, 640);
+        // YOLO input size (640x640 for YOLOv5s)
+        const inputSize = 640;
+        canvas.width = inputSize;
+        canvas.height = inputSize;
         
-        // Get image data and normalize
-        const imageData = ctx.getImageData(0, 0, 640, 640);
+        // Calculate aspect ratio preserving resize
+        const scale = Math.min(inputSize / originalWidth, inputSize / originalHeight);
+        const scaledWidth = originalWidth * scale;
+        const scaledHeight = originalHeight * scale;
+        
+        // Center the image (letterboxing)
+        const xOffset = (inputSize - scaledWidth) / 2;
+        const yOffset = (inputSize - scaledHeight) / 2;
+        
+        // Fill canvas with gray (114, 114, 114) - YOLO default pad color
+        ctx.fillStyle = 'rgb(114, 114, 114)';
+        ctx.fillRect(0, 0, inputSize, inputSize);
+        
+        // Draw scaled image centered
+        ctx.drawImage(imageElement, xOffset, yOffset, scaledWidth, scaledHeight);
+        
+        // Get image data
+        const imageData = ctx.getImageData(0, 0, inputSize, inputSize);
         const data = imageData.data;
         
-        // Convert to tensor format [1, 3, 640, 640]
-        const red = [], green = [], blue = [];
+        // Convert RGBA to RGB and normalize to [0,1]
+        // YOLO expects CHW format: [1, 3, 640, 640]
+        const tensorData = new Float32Array(3 * inputSize * inputSize);
         
-        for (let i = 0; i < data.length; i += 4) {
-            red.push(data[i] / 255.0);
-            green.push(data[i + 1] / 255.0);
-            blue.push(data[i + 2] / 255.0);
+        for (let i = 0; i < inputSize * inputSize; i++) {
+            const pixelIndex = i * 4;
+            // Normalize from [0,255] to [0,1]
+            tensorData[i] = data[pixelIndex] / 255.0;                    // R channel
+            tensorData[i + inputSize * inputSize] = data[pixelIndex + 1] / 255.0;     // G channel  
+            tensorData[i + 2 * inputSize * inputSize] = data[pixelIndex + 2] / 255.0; // B channel
         }
         
-        const tensorData = red.concat(green).concat(blue);
+        const tensor = new ort.Tensor('float32', tensorData, [1, 3, inputSize, inputSize]);
         
-        return new ort.Tensor('float32', tensorData, [1, 3, 640, 640]);
+        return {
+            tensor,
+            imgWidth: originalWidth,
+            imgHeight: originalHeight,
+            scale,
+            xOffset,
+            yOffset
+        };
     }
     
-    postprocessResults(output, outputDims) {
+    postprocessYOLOResults(output, outputDims, imgWidth, imgHeight) {
         const detections = [];
-        const [batchSize, numDetections, numClasses] = outputDims;
         
-        // Parse YOLO output format
+        // YOLOv5 output format: [1, 25200, 85] 
+        // 85 = 4 (box coords) + 1 (objectness) + 80 (class scores)
+        const [batchSize, numDetections, numFeatures] = outputDims;
+        const numClasses = numFeatures - 5; // 80 classes for COCO
+        
+        const confidenceThreshold = 0.4;
+        const inputSize = 640;
+        
         for (let i = 0; i < numDetections; i++) {
-            const detection = [];
-            for (let j = 0; j < numClasses; j++) {
-                detection.push(output[i * numClasses + j]);
+            const baseIdx = i * numFeatures;
+            
+            // Extract box coordinates (center format)
+            const centerX = output[baseIdx];
+            const centerY = output[baseIdx + 1];
+            const width = output[baseIdx + 2];
+            const height = output[baseIdx + 3];
+            const objectness = output[baseIdx + 4];
+            
+            if (objectness < confidenceThreshold) continue;
+            
+            // Find best class
+            let maxClassScore = 0;
+            let bestClassId = -1;
+            
+            for (let c = 0; c < numClasses; c++) {
+                const classScore = output[baseIdx + 5 + c];
+                if (classScore > maxClassScore) {
+                    maxClassScore = classScore;
+                    bestClassId = c;
+                }
             }
             
-            // Extract box coordinates and confidence
-            const [x, y, width, height, confidence, ...classScores] = detection;
+            const finalConfidence = objectness * maxClassScore;
+            if (finalConfidence < confidenceThreshold) continue;
             
-            if (confidence > 0.5) {
-                const classId = classScores.indexOf(Math.max(...classScores));
-                const classConfidence = classScores[classId];
+            // Convert center format to corner format and scale to original image
+            const x1 = (centerX - width / 2) / inputSize * imgWidth;
+            const y1 = (centerY - height / 2) / inputSize * imgHeight;
+            const x2 = (centerX + width / 2) / inputSize * imgWidth;
+            const y2 = (centerY + height / 2) / inputSize * imgHeight;
+            
+            detections.push({
+                bbox: [x1, y1, x2 - x1, y2 - y1], // [x, y, width, height]
+                confidence: finalConfidence,
+                classId: bestClassId,
+                className: this.cocoClasses[bestClassId] || 'unknown'
+            });
+        }
+        
+        return detections;
+    }
+    
+    // Non-Maximum Suppression to remove overlapping detections
+    nonMaxSuppression(detections, scoreThreshold = 0.5, iouThreshold = 0.4) {
+        // Sort by confidence score (highest first)
+        detections.sort((a, b) => b.confidence - a.confidence);
+        
+        const selected = [];
+        const suppressed = new Set();
+        
+        for (let i = 0; i < detections.length; i++) {
+            if (suppressed.has(i)) continue;
+            if (detections[i].confidence < scoreThreshold) break;
+            
+            selected.push(detections[i]);
+            
+            // Suppress overlapping detections
+            for (let j = i + 1; j < detections.length; j++) {
+                if (suppressed.has(j)) continue;
                 
-                if (classConfidence > 0.5) {
-                    detections.push({
-                        bbox: [x - width/2, y - height/2, width, height],
-                        confidence: confidence * classConfidence,
-                        classId: classId,
-                        className: this.cocoClasses[classId] || 'unknown'
-                    });
+                const iou = this.calculateIoU(detections[i].bbox, detections[j].bbox);
+                if (iou > iouThreshold) {
+                    suppressed.add(j);
                 }
             }
         }
         
-        return detections;
+        return selected;
+    }
+    
+    // Calculate Intersection over Union (IoU) for two bounding boxes
+    calculateIoU(bbox1, bbox2) {
+        const [x1_1, y1_1, w1, h1] = bbox1;
+        const [x1_2, y1_2, w2, h2] = bbox2;
+        
+        const x2_1 = x1_1 + w1;
+        const y2_1 = y1_1 + h1;
+        const x2_2 = x1_2 + w2;
+        const y2_2 = y1_2 + h2;
+        
+        // Calculate intersection rectangle
+        const xLeft = Math.max(x1_1, x1_2);
+        const yTop = Math.max(y1_1, y1_2);
+        const xRight = Math.min(x2_1, x2_2);
+        const yBottom = Math.min(y2_1, y2_2);
+        
+        if (xRight < xLeft || yBottom < yTop) {
+            return 0.0; // No intersection
+        }
+        
+        const intersectionArea = (xRight - xLeft) * (yBottom - yTop);
+        const bbox1Area = w1 * h1;
+        const bbox2Area = w2 * h2;
+        const unionArea = bbox1Area + bbox2Area - intersectionArea;
+        
+        return intersectionArea / unionArea;
     }
     
     filterPotentialHazards(detections) {
@@ -178,60 +286,6 @@ class YOLODetector {
         });
         
         return potentialHazards.sort((a, b) => b.confidence - a.confidence);
-    }
-    
-    // Mock detection for prototype testing
-    mockDetection() {
-        return new Promise(resolve => {
-            setTimeout(() => {
-                const mockDetections = [
-                    {
-                        objectName: 'chair',
-                        confidence: 85,
-                        bbox: [100, 150, 120, 180],
-                        hazardType: 'unstable_furniture',
-                        risk: 'medium',
-                        description: 'Chair that could be used for support',
-                        isPotentialHazard: true
-                    },
-                    {
-                        objectName: 'dining table',
-                        confidence: 92,
-                        bbox: [200, 100, 200, 80],
-                        hazardType: 'sharp_corners',
-                        risk: 'medium',
-                        description: 'Table with sharp corners at mobility aid height',
-                        isPotentialHazard: true
-                    },
-                    {
-                        objectName: 'backpack',
-                        confidence: 78,
-                        bbox: [50, 300, 60, 80],
-                        hazardType: 'floor_clutter',
-                        risk: 'medium',
-                        description: 'Item left on floor creating obstruction',
-                        isPotentialHazard: true
-                    },
-                    {
-                        objectName: 'potted plant',
-                        confidence: 65,
-                        bbox: [350, 200, 40, 120],
-                        hazardType: 'floor_clutter',
-                        risk: 'low',
-                        description: 'Object that could obstruct pathways',
-                        isPotentialHazard: true
-                    },
-                    {
-                        objectName: 'couch',
-                        confidence: 88,
-                        bbox: [300, 250, 180, 100],
-                        isPotentialHazard: false
-                    }
-                ];
-                
-                resolve(mockDetections);
-            }, 2000); // Simulate processing time
-        });
     }
 }
 

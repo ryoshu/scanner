@@ -176,14 +176,23 @@ class HazardScanner {
             // Create image element from captured photo
             const img = new Image();
             img.onload = async () => {
-                const detections = await this.yoloDetector.detectObjects(img);
-                this.aiDetections = detections;
-                this.showAIResults(detections);
+                try {
+                    const detections = await this.yoloDetector.detectObjects(img);
+                    this.aiDetections = detections;
+                    this.showAIResults(detections);
+                } catch (detectionError) {
+                    console.error('YOLO detection failed:', detectionError);
+                    this.showAIError(detectionError.message);
+                }
+            };
+            img.onerror = () => {
+                console.error('Failed to load captured image');
+                this.showAIError('Failed to load captured image');
             };
             img.src = this.currentPhoto;
         } catch (error) {
-            console.error('AI analysis failed:', error);
-            this.showAIError();
+            console.error('AI analysis setup failed:', error);
+            this.showAIError(error.message);
         }
     }
     
@@ -239,10 +248,16 @@ class HazardScanner {
         this.announceToScreenReader(`AI analysis complete. Found ${hazardCount} potential hazard${hazardCount !== 1 ? 's' : ''}. Review the results and continue to manual identification.`);
     }
     
-    showAIError() {
+    showAIError(errorMessage = 'Unknown error') {
         this.aiStatus.style.display = 'none';
         this.aiResults.style.display = 'block';
-        this.detectedObjects.innerHTML = '<p>AI analysis encountered an error. Continuing to manual identification.</p>';
+        this.detectedObjects.innerHTML = `
+            <div class="ai-error">
+                <p><strong>AI Analysis Failed</strong></p>
+                <p>Error: ${errorMessage}</p>
+                <p>Don't worry! You can still manually identify hazards in the next step.</p>
+            </div>
+        `;
         this.announceToScreenReader('AI analysis failed. Continuing to manual hazard identification.');
     }
     
