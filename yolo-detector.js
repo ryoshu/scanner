@@ -376,6 +376,9 @@ class YOLODetector {
             const finalConfidence = objectness * maxClassScore;
             if (finalConfidence < confidenceThreshold) continue;
             
+            // Debug: Log confidence values to understand the range
+            console.log(`Raw confidence: objectness=${objectness}, maxClassScore=${maxClassScore}, final=${finalConfidence}`);
+            
             // Convert center format to corner format and scale to original image
             const x1 = (centerX - width / 2) / inputSize * imgWidth;
             const y1 = (centerY - height / 2) / inputSize * imgHeight;
@@ -459,7 +462,7 @@ class YOLODetector {
             if (hazardInfo) {
                 potentialHazards.push({
                     objectName: className,
-                    confidence: Math.round(detection.confidence * 100),
+                    confidence: this.normalizeConfidence(detection.confidence),
                     bbox: detection.bbox,
                     hazardType: hazardInfo.hazardType,
                     risk: hazardInfo.risk,
@@ -470,7 +473,7 @@ class YOLODetector {
                 // Include other detected objects for context
                 potentialHazards.push({
                     objectName: className,
-                    confidence: Math.round(detection.confidence * 100),
+                    confidence: this.normalizeConfidence(detection.confidence),
                     bbox: detection.bbox,
                     isPotentialHazard: false
                 });
@@ -478,6 +481,27 @@ class YOLODetector {
         });
         
         return potentialHazards.sort((a, b) => b.confidence - a.confidence);
+    }
+    
+    // Helper function to normalize confidence values to 0-100% range
+    normalizeConfidence(confidence) {
+        // Handle different possible ranges of confidence values
+        let normalizedValue;
+        
+        if (confidence <= 1.0) {
+            // Already in 0-1 range, convert to percentage
+            normalizedValue = confidence * 100;
+        } else if (confidence <= 100) {
+            // Already in 0-100 range
+            normalizedValue = confidence;
+        } else {
+            // Very large values - might be in different scale
+            // Clamp to reasonable range and convert
+            normalizedValue = Math.min(confidence / 100000, 100);
+        }
+        
+        // Ensure result is between 0-100 and round to whole number
+        return Math.max(0, Math.min(100, Math.round(normalizedValue)));
     }
     
     // Helper function to convert float32 to float16 (IEEE 754 half precision)

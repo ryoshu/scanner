@@ -78,6 +78,135 @@ The prototype includes AI-powered object detection using YOLOv5 via ONNX Runtime
 - Confidence-based auto-selection
 - User feedback loop for model improvement
 
+## Converting YOLOv11 to ONNX
+
+To use YOLOv11 models instead of YOLOv5, you'll need to convert them to ONNX format:
+
+### **Prerequisites**
+```bash
+pip install ultralytics onnx onnxruntime
+```
+
+### **Method 1: Using Ultralytics CLI**
+```bash
+# Download and convert YOLOv11n (nano - smallest/fastest)
+yolo export model=yolo11n.pt format=onnx simplify=True dynamic=False imgsz=640
+
+# Download and convert YOLOv11s (small)
+yolo export model=yolo11s.pt format=onnx simplify=True dynamic=False imgsz=640
+
+# Download and convert YOLOv11m (medium)
+yolo export model=yolo11m.pt format=onnx simplify=True dynamic=False imgsz=640
+```
+
+### **Method 2: Using Python Script**
+```python
+from ultralytics import YOLO
+
+# Load YOLOv11 model
+model = YOLO('yolo11n.pt')  # or yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt
+
+# Export to ONNX with optimizations for web deployment
+model.export(
+    format='onnx',
+    simplify=True,
+    dynamic=False,
+    imgsz=640,
+    half=False,  # Use float32 for better web compatibility
+    int8=False,
+    opset=11     # ONNX opset version for broader compatibility
+)
+```
+
+### **Method 3: Custom Training + Export**
+```python
+from ultralytics import YOLO
+
+# Train custom model on mobility hazard dataset
+model = YOLO('yolo11n.pt')
+model.train(
+    data='mobility_hazards.yaml',  # Your custom dataset
+    epochs=100,
+    imgsz=640,
+    batch=16
+)
+
+# Export trained model to ONNX
+model.export(format='onnx', simplify=True, dynamic=False, imgsz=640)
+```
+
+### **Model Size Comparison**
+| Model | Size | Speed | mAP | Best For |
+|-------|------|-------|-----|----------|
+| YOLOv11n | ~5MB | Fastest | Lower | Mobile, Real-time |
+| YOLOv11s | ~22MB | Fast | Good | Balanced performance |
+| YOLOv11m | ~50MB | Medium | Better | Higher accuracy needs |
+| YOLOv11l | ~87MB | Slow | High | Server deployment |
+
+### **Web Deployment Optimization**
+```python
+# Optimized export for web deployment
+model = YOLO('yolo11n.pt')
+model.export(
+    format='onnx',
+    simplify=True,           # Simplify model graph
+    dynamic=False,           # Fixed input size for faster inference  
+    imgsz=640,              # Standard YOLO input size
+    half=False,             # Use float32 (better browser compatibility)
+    int8=False,             # No quantization (web engines prefer float32)
+    opset=11,               # Widely supported ONNX version
+    workspace=4,            # Limit workspace size for memory efficiency
+    verbose=True            # Show conversion details
+)
+```
+
+### **Placing the Model**
+1. After conversion, you'll get a `.onnx` file (e.g., `yolo11n.onnx`)
+2. Place it in the `models/` directory: `./models/yolo11n.onnx`
+3. Update the model URL in `yolo-detector.js`:
+```javascript
+const modelUrls = [
+    './models/yolo11n.onnx',  // Your new YOLOv11 model
+    './models/yolov5s.onnx',  // Fallback
+    // ... other fallback URLs
+];
+```
+
+### **Testing the Conversion**
+```python
+import onnxruntime as ort
+import numpy as np
+
+# Test ONNX model loading
+session = ort.InferenceSession('yolo11n.onnx')
+
+# Check input/output info
+print("Inputs:", [input.name for input in session.get_inputs()])
+print("Outputs:", [output.name for output in session.get_outputs()])
+
+# Test inference with dummy data
+dummy_input = np.random.randn(1, 3, 640, 640).astype(np.float32)
+outputs = session.run(None, {'images': dummy_input})
+print("Output shape:", outputs[0].shape)
+```
+
+### **Custom Mobility Hazard Training**
+For Phase 1, you can train YOLOv11 on mobility-specific data:
+
+```yaml
+# mobility_hazards.yaml
+path: ./mobility_dataset
+train: images/train
+val: images/val
+
+nc: 10  # number of classes
+names: ['loose_rug', 'floor_clutter', 'sharp_corner', 'electrical_cord', 
+        'narrow_passage', 'high_threshold', 'unstable_furniture', 
+        'poor_lighting', 'wet_floor', 'obstacle']
+```
+
+The converted YOLOv11 models will provide better accuracy and performance than YOLOv5 while maintaining browser compatibility.
+
 ## Development Commands
 Since this is a vanilla JavaScript project, no build process is required:
 
