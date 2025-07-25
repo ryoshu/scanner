@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room Hazard Scanner - Prototype</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Room Hazard Scanner</h1>
+        <p>Identify potential mobility hazards in your space</p>
+    </header>
+
+    <main>
+        <section id="camera-section" class="section">
+            <h2>1. Scan Your Room</h2>
+            <div class="camera-container">
+                <video id="camera" autoplay playsinline></video>
+                <canvas id="snapshot" style="display: none;"></canvas>
+            </div>
+            <div class="button-group">
+                <button id="start-camera" class="btn btn-primary" aria-label="Start camera to scan room">
+                    📹 Start Camera
+                </button>
+                <button id="take-photo" class="btn btn-primary" style="display: none;" aria-label="Take photo of current view">
+                    📸 Take Photo
+                </button>
+            </div>
+        </section>
+
+        <section id="photo-section" class="section" style="display: none;">
+            <h2>2. Review Your Photo</h2>
+            <div class="photo-container">
+                <img id="captured-photo" alt="Captured room photo" />
+            </div>
+            <div class="button-group">
+                <button id="retake-photo" class="btn btn-secondary" aria-label="Retake the photo">
+                    🔄 Retake Photo
+                </button>
+                <button id="analyze-photo" class="btn btn-primary" aria-label="Continue to analyze this photo">
+                    ➡️ Analyze Photo
+                </button>
+            </div>
+        </section>
+
+        <section id="hazard-section" class="section" style="display: none;">
+            <h2>3. Identify Hazards</h2>
+            <div id="hazard-list" class="hazard-list">
+                <!-- Hazard items will be added dynamically -->
+            </div>
+            <div class="button-group">
+                <button id="add-custom-hazard" class="btn btn-secondary" aria-label="Add a custom hazard">
+                    ➕ Add Custom Hazard
+                </button>
+                <button id="finish-scan" class="btn btn-primary" aria-label="Finish scanning and view results">
+                    ✅ Finish Scan
+                </button>
+            </div>
+        </section>
+
+        <section id="results-section" class="section" style="display: none;">
+            <h2>4. Assessment Results</h2>
+            <div id="results-summary" class="results-summary">
+                <!-- Results will be populated here -->
+            </div>
+            <div id="hazard-details" class="hazard-details">
+                <!-- Detailed hazard list will be shown here -->
+            </div>
+            <div class="button-group">
+                <button id="start-new-scan" class="btn btn-primary" aria-label="Start a new room scan">
+                    🔄 New Scan
+                </button>
+                <button id="view-history" class="btn btn-secondary" aria-label="View previous scans">
+                    📋 View History
+                </button>
+            </div>
+        </section>
+
+        <section id="history-section" class="section" style="display: none;">
+            <h2>Scan History</h2>
+            <div id="scan-history" class="scan-history">
+                <!-- Previous scans will be listed here -->
+            </div>
+            <div class="button-group">
+                <button id="back-to-home" class="btn btn-secondary" aria-label="Go back to main screen">
+                    ⬅️ Back to Home
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
