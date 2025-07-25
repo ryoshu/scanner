@@ -290,6 +290,24 @@ header p {
     color: #495057;
 }
 
+.ai-fallback {
+    text-align: center;
+    padding: 20px;
+    background: #fff3cd;
+    border: 2px solid #ffeaa7;
+    border-radius: 8px;
+    color: #856404;
+}
+
+.ai-fallback p {
+    margin-bottom: 10px;
+}
+
+.ai-fallback p:last-child {
+    margin-bottom: 0;
+    color: #495057;
+}
+
 /* Hazard list */
 .hazard-list {
     display: grid;

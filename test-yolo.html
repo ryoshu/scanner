@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.3/dist/ort.min.js"></script>
+</head>
+<body>
+    <h1>YOLO Model Loading Test</h1>
+    <div id="status">Testing YOLO model loading...</div>
+    <div id="results"></div>
+    
+    <script src="yolo-detector.js"></script>
+    <script>
+        async function testYOLO() {
+            const statusEl = document.getElementById('status');
+            const resultsEl = document.getElementById('results');
+            
+            try {
+                statusEl.textContent = 'Initializing YOLO detector...';
+                const detector = new YOLODetector();
+                
+                statusEl.textContent = 'Loading YOLO model...';
+                await detector.loadModel();
+                
+                if (detector.fallbackMode) {
+                    statusEl.textContent = 'YOLO model loading failed - using fallback mode';
+                    resultsEl.innerHTML = '<p style="color: orange;">Fallback mode active - no AI detection available</p>';
+                } else {
+                    statusEl.textContent = 'YOLO model loaded successfully!';
+                    resultsEl.innerHTML = '<p style="color: green;">✅ YOLO model is ready for object detection</p>';
+                    
+                    // Show model info
+                    if (detector.session) {
+                        resultsEl.innerHTML += `
+                            <h3>Model Information:</h3>
+                            <p><strong>Input Names:</strong> ${Object.keys(detector.session.inputNames).join(', ')}</p>
+                            <p><strong>Output Names:</strong> ${Object.keys(detector.session.outputNames).join(', ')}</p>
+                        `;
+                    }
+                }
+                
+            } catch (error) {
+                statusEl.textContent = 'YOLO model loading failed';
+                resultsEl.innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+                console.error('YOLO test failed:', error);
+            }
+        }
+        
+        // Update status function for YOLO detector
+        window.updateAIStatus = (message) => {
+            document.getElementById('status').textContent = message;
+        };
+        
+        // Run test when page loads
+        testYOLO();
+    </script>
+</body>
+</html>

@@ -9,6 +9,9 @@ class HazardScanner {
         this.initializeElements();
         this.bindEvents();
         this.initializeHazardTypes();
+        
+        // Make updateAIStatus available globally for YOLO detector
+        window.updateAIStatus = (message) => this.updateAIStatus(message);
     }
 
     initializeElements() {
@@ -170,6 +173,7 @@ class HazardScanner {
         this.showSection('aiAnalysis');
         this.aiStatus.style.display = 'block';
         this.aiResults.style.display = 'none';
+        this.updateAIStatus('AI is analyzing your photo for potential hazards...');
         this.announceToScreenReader('AI is analyzing your photo for potential hazards. Please wait.');
         
         try {
@@ -204,6 +208,14 @@ class HazardScanner {
         
         if (detections.length === 0) {
             this.detectedObjects.innerHTML = '<p>No objects detected by AI. Continue to manual identification.</p>';
+        } else if (detections.length === 1 && detections[0].fallbackMessage) {
+            // Handle fallback mode
+            this.detectedObjects.innerHTML = `
+                <div class="ai-fallback">
+                    <p><strong>AI Detection Unavailable</strong></p>
+                    <p>${detections[0].fallbackMessage}</p>
+                </div>
+            `;
         } else {
             detections.forEach(detection => {
                 const objectDiv = document.createElement('div');
@@ -259,6 +271,13 @@ class HazardScanner {
             </div>
         `;
         this.announceToScreenReader('AI analysis failed. Continuing to manual hazard identification.');
+    }
+    
+    updateAIStatus(message) {
+        const statusElement = this.aiStatus.querySelector('p');
+        if (statusElement) {
+            statusElement.textContent = message;
+        }
     }
     
     addAIDetectionAsHazard(button) {

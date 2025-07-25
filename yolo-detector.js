@@ -40,28 +40,94 @@ class YOLODetector {
         
         this.isLoading = true;
         
-        try {
-            // For prototype, we'll use a YOLOv5s model converted to ONNX
-            // In production, this would be YOLOv11
+        // Multiple model sources to try in order
+        const modelUrls = [
+            // Local model (if available)
+            './models/yolov5s.onnx',
+            // Hugging Face model hub
+            'https://huggingface.co/onnx/yolov5/resolve/main/yolov5s.onnx',
+            // Alternative CDN sources
+            'https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.onnx',
+            // Smaller YOLOv5n model as fallback
+            'https://huggingface.co/onnx/yolov5/resolve/main/yolov5n.onnx'
+        ];
+        
+        for (let i = 0; i < modelUrls.length; i++) {
+            const modelUrl = modelUrls[i];
+            console.log(`Attempting to load YOLO model from: ${modelUrl}`);
             
-            const modelUrl = './models/yolov5s.onnx';
+            // Notify UI about loading progress
+            if (typeof window !== 'undefined' && window.updateAIStatus) {
+                window.updateAIStatus(`Loading YOLO model (${i + 1}/${modelUrls.length}): ${modelUrl.split('/').pop()}`);
+            }
             
-            console.log('Loading YOLO model...');
-            this.session = await ort.InferenceSession.create(modelUrl);
-            this.isReady = true;
-            console.log('YOLO model loaded successfully');
-            
-        } catch (error) {
-            console.error('Failed to load YOLO model:', error);
-            throw new Error(`YOLO model loading failed: ${error.message}`);
-        } finally {
-            this.isLoading = false;
+            try {
+                // First check if the URL is accessible (for local files)
+                if (modelUrl.startsWith('./')) {
+                    try {
+                        const response = await fetch(modelUrl, { method: 'HEAD' });
+                        if (!response.ok) {
+                            throw new Error(`Local model file not accessible: ${response.status}`);
+                        }
+                    } catch (fetchError) {
+                        throw new Error(`Local model file not found: ${fetchError.message}`);
+                    }
+                }
+                
+                // Configure ONNX Runtime for better compatibility
+                const sessionOptions = {
+                    executionProviders: ['wasm'],
+                    graphOptimizationLevel: 'disabled',
+                    executionMode: 'sequential',
+                    enableCpuMemArena: false,
+                    enableMemPattern: false
+                };
+                
+                console.log('Creating ONNX session with options:', sessionOptions);
+                this.session = await ort.InferenceSession.create(modelUrl, sessionOptions);
+                this.isReady = true;
+                console.log(`YOLO model loaded successfully from: ${modelUrl}`);
+                
+                // Get input/output info for debugging
+                console.log('Model inputs:', Object.keys(this.session.inputNames));
+                console.log('Model outputs:', Object.keys(this.session.outputNames));
+                
+                return;
+                
+            } catch (error) {
+                console.warn(`Failed to load model from ${modelUrl}:`, error.message);
+                
+                // If it's the last URL, we'll use a fallback mode
+                if (i === modelUrls.length - 1) {
+                    console.warn('All YOLO model sources failed, enabling fallback mode');
+                    this.fallbackMode = true;
+                    this.isReady = true;
+                    return;
+                }
+                
+                // Otherwise, continue to next URL
+                continue;
+            }
         }
+    } finally {
+        this.isLoading = false;
     }
     
     async detectObjects(imageElement) {
         if (!this.isReady) {
             await this.loadModel();
+        }
+        
+        // If we're in fallback mode, return empty results with message
+        if (this.fallbackMode) {
+            console.log('Using fallback mode - no AI detection available');
+            return [{
+                objectName: 'No AI Detection Available',
+                confidence: 0,
+                bbox: [0, 0, 0, 0],
+                isPotentialHazard: false,
+                fallbackMessage: 'YOLO model could not be loaded. Please manually identify hazards.'
+            }];
         }
         
         try {
@@ -85,6 +151,8 @@ class YOLODetector {
             
         } catch (error) {
             console.error('Detection failed:', error);
+            // Enable fallback mode for future calls
+            this.fallbackMode = true;
             throw error;
         }
     }
