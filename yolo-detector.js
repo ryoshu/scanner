@@ -40,19 +40,20 @@ class YOLODetector {
         
         this.isLoading = true;
         
-        // Multiple model sources to try in order
-        const modelUrls = [
-            // Local model (if available)
-            './models/yolov5s.onnx',
-            // Hugging Face model hub
-            'https://huggingface.co/onnx/yolov5/resolve/main/yolov5s.onnx',
-            // Alternative CDN sources
-            'https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.onnx',
-            // Smaller YOLOv5n model as fallback
-            'https://huggingface.co/onnx/yolov5/resolve/main/yolov5n.onnx'
-        ];
-        
-        for (let i = 0; i < modelUrls.length; i++) {
+        try {
+            // Multiple model sources to try in order
+            const modelUrls = [
+                // Local model (if available)
+                './models/yolov5s.onnx',
+                // Hugging Face model hub
+                'https://huggingface.co/onnx/yolov5/resolve/main/yolov5s.onnx',
+                // Alternative CDN sources
+                'https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.onnx',
+                // Smaller YOLOv5n model as fallback
+                'https://huggingface.co/onnx/yolov5/resolve/main/yolov5n.onnx'
+            ];
+            
+            for (let i = 0; i < modelUrls.length; i++) {
             const modelUrl = modelUrls[i];
             console.log(`Attempting to load YOLO model from: ${modelUrl}`);
             
@@ -89,8 +90,19 @@ class YOLODetector {
                 console.log(`YOLO model loaded successfully from: ${modelUrl}`);
                 
                 // Get input/output info for debugging
-                console.log('Model inputs:', Object.keys(this.session.inputNames));
-                console.log('Model outputs:', Object.keys(this.session.outputNames));
+                console.log('Model inputs:', this.session.inputNames);
+                console.log('Model outputs:', this.session.outputNames);
+                
+                // Check input data type
+                if (this.session.inputNames && this.session.inputNames.length > 0) {
+                    const inputName = this.session.inputNames[0];
+                    try {
+                        const inputInfo = this.session.getInputMetadata ? this.session.getInputMetadata(inputName) : null;
+                        console.log(`Input ${inputName} info:`, inputInfo);
+                    } catch (e) {
+                        console.log('Could not get input metadata:', e.message);
+                    }
+                }
                 
                 return;
                 
@@ -109,8 +121,9 @@ class YOLODetector {
                 continue;
             }
         }
-    } finally {
-        this.isLoading = false;
+        } finally {
+            this.isLoading = false;
+        }
     }
     
     async detectObjects(imageElement) {
@@ -131,14 +144,35 @@ class YOLODetector {
         }
         
         try {
-            // Preprocess image for YOLO input
-            const { tensor, imgWidth, imgHeight } = await this.preprocessImage(imageElement);
+            // Try inference with different tensor types if needed
+            return await this.runInferenceWithTypeDetection(imageElement);
             
-            // Run YOLO inference
-            const results = await this.session.run({ images: tensor });
+        } catch (error) {
+            console.error('Detection failed:', error);
+            // Enable fallback mode for future calls
+            this.fallbackMode = true;
+            throw error;
+        }
+    }
+    
+    async runInferenceWithTypeDetection(imageElement) {
+        // Preprocess image for YOLO input
+        const preprocessResult = await this.preprocessImage(imageElement);
+        let { tensor, imgWidth, imgHeight } = preprocessResult;
+        
+        const inputName = this.session.inputNames[0];
+        const outputName = this.session.outputNames[0];
+        
+        // First try with the tensor type determined during preprocessing
+        try {
+            console.log(`Running inference with input name: ${inputName}, tensor type: ${tensor.type}, shape: ${tensor.dims}`);
             
-            // Get output tensor (YOLOv5 output format)
-            const output = results.output0 || results[Object.keys(results)[0]];
+            const inputObj = {};
+            inputObj[inputName] = tensor;
+            const results = await this.session.run(inputObj);
+            
+            const output = results[outputName];
+            console.log(`Got output from ${outputName}, shape: ${output.dims}`);
             
             // Postprocess YOLO results
             const detections = this.postprocessYOLOResults(output.data, output.dims, imgWidth, imgHeight);
@@ -149,11 +183,44 @@ class YOLODetector {
             // Map to potential hazards
             return this.filterPotentialHazards(filteredDetections);
             
-        } catch (error) {
-            console.error('Detection failed:', error);
-            // Enable fallback mode for future calls
-            this.fallbackMode = true;
-            throw error;
+        } catch (inferenceError) {
+            // Check if it's a data type mismatch error
+            if (inferenceError.message.includes('Unexpected input data type') || 
+                inferenceError.message.includes('float16') || 
+                inferenceError.message.includes('float32')) {
+                
+                console.log('Data type mismatch detected, trying alternative tensor type...');
+                
+                // Try with the opposite tensor type
+                const alternativeTensor = await this.createAlternativeTensor(preprocessResult, tensor.type);
+                
+                try {
+                    console.log(`Retrying with tensor type: ${alternativeTensor.type}`);
+                    
+                    const inputObj = {};
+                    inputObj[inputName] = alternativeTensor;
+                    const results = await this.session.run(inputObj);
+                    
+                    const output = results[outputName];
+                    console.log(`Success! Got output from ${outputName}, shape: ${output.dims}`);
+                    
+                    // Postprocess YOLO results
+                    const detections = this.postprocessYOLOResults(output.data, output.dims, imgWidth, imgHeight);
+                    
+                    // Apply Non-Maximum Suppression
+                    const filteredDetections = this.nonMaxSuppression(detections, 0.5, 0.4);
+                    
+                    // Map to potential hazards
+                    return this.filterPotentialHazards(filteredDetections);
+                    
+                } catch (secondError) {
+                    console.error('Both tensor types failed:', secondError);
+                    throw secondError;
+                }
+            } else {
+                // Not a data type error, rethrow original
+                throw inferenceError;
+            }
         }
     }
     
@@ -192,6 +259,7 @@ class YOLODetector {
         
         // Convert RGBA to RGB and normalize to [0,1]
         // YOLO expects CHW format: [1, 3, 640, 640]
+        // Note: Some models expect float16, we'll detect this dynamically
         const tensorData = new Float32Array(3 * inputSize * inputSize);
         
         for (let i = 0; i < inputSize * inputSize; i++) {
@@ -202,7 +270,37 @@ class YOLODetector {
             tensorData[i + 2 * inputSize * inputSize] = data[pixelIndex + 2] / 255.0; // B channel
         }
         
-        const tensor = new ort.Tensor('float32', tensorData, [1, 3, inputSize, inputSize]);
+        // Detect required tensor type from model (float32 vs float16)
+        let tensorType = 'float32';
+        let finalTensorData = tensorData;
+        
+        // Store session reference for tensor type detection during inference
+        if (this.session && this.session.inputNames && this.session.inputNames.length > 0) {
+            const inputName = this.session.inputNames[0];
+            
+            // Try to get input metadata, but handle cases where it's not available
+            try {
+                if (this.session.getInputMetadata) {
+                    const inputMetadata = this.session.getInputMetadata(inputName);
+                    console.log(`Input metadata for ${inputName}:`, inputMetadata);
+                    
+                    if (inputMetadata && inputMetadata.type && inputMetadata.type.includes('float16')) {
+                        tensorType = 'float16';
+                        console.log('Converting to float16 tensor');
+                        // Convert Float32Array to Uint16Array for float16
+                        finalTensorData = new Uint16Array(tensorData.length);
+                        for (let i = 0; i < tensorData.length; i++) {
+                            finalTensorData[i] = this.floatToFloat16(tensorData[i]);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('Using default float32 tensor type (metadata not available)');
+            }
+        }
+        
+        const tensor = new ort.Tensor(tensorType, finalTensorData, [1, 3, inputSize, inputSize]);
+        console.log(`Created tensor: type=${tensorType}, shape=[1, 3, ${inputSize}, ${inputSize}], dataLength=${finalTensorData.length}`);
         
         return {
             tensor,
@@ -210,8 +308,34 @@ class YOLODetector {
             imgHeight: originalHeight,
             scale,
             xOffset,
-            yOffset
+            yOffset,
+            rawTensorData: tensorData  // Keep original float32 data for type conversion
         };
+    }
+    
+    async createAlternativeTensor(preprocessResult, currentTensorType) {
+        const { rawTensorData } = preprocessResult;
+        const inputSize = 640;
+        
+        let newTensorType, newTensorData;
+        
+        if (currentTensorType === 'float32') {
+            // Convert to float16
+            newTensorType = 'float16';
+            newTensorData = new Uint16Array(rawTensorData.length);
+            for (let i = 0; i < rawTensorData.length; i++) {
+                newTensorData[i] = this.floatToFloat16(rawTensorData[i]);
+            }
+        } else {
+            // Convert to float32 (or keep as float32)
+            newTensorType = 'float32';
+            newTensorData = rawTensorData; // Already Float32Array
+        }
+        
+        const tensor = new ort.Tensor(newTensorType, newTensorData, [1, 3, inputSize, inputSize]);
+        console.log(`Created alternative tensor: type=${newTensorType}, dataLength=${newTensorData.length}`);
+        
+        return tensor;
     }
     
     postprocessYOLOResults(output, outputDims, imgWidth, imgHeight) {
@@ -354,6 +478,32 @@ class YOLODetector {
         });
         
         return potentialHazards.sort((a, b) => b.confidence - a.confidence);
+    }
+    
+    // Helper function to convert float32 to float16 (IEEE 754 half precision)
+    floatToFloat16(value) {
+        const floatView = new Float32Array(1);
+        const int32View = new Int32Array(floatView.buffer);
+        floatView[0] = value;
+        const f = int32View[0];
+        
+        const sign = (f >>> 31) << 15;
+        let exp = ((f >>> 23) & 0xff) - 127;
+        let frac = f & 0x7fffff;
+        
+        if (exp < -14) {
+            // Subnormal
+            const shift = -14 - exp;
+            if (shift > 24) return sign;
+            frac = (frac | 0x800000) >>> shift;
+            return sign | frac;
+        } else if (exp > 15) {
+            // Infinity
+            return sign | 0x7c00;
+        } else {
+            // Normal
+            return sign | ((exp + 15) << 10) | (frac >>> 13);
+        }
     }
 }
 
